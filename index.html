@@ -540,7 +540,7 @@
 <script>
   // ── N8N WEBHOOK URL — UPDATE THIS ──────────────────────────────────────────
   // Replace with your actual Render n8n webhook URL:
-  const WEBHOOK_URL = 'https://YOUR-N8N-INSTANCE.onrender.com/webhook/applyflow-inbound';
+  const WEBHOOK_URL = 'https://n8n-1-tmsp.onrender.com/webhook/applyflow-inbound';
   // ───────────────────────────────────────────────────────────────────────────
 
   const form      = document.getElementById('cvForm');
@@ -569,28 +569,53 @@
     btn.textContent = 'Sending…';
     showStatus('⏳ Sending your CV to our AI — this may take 10–20 seconds…', 'loading');
 
+    const payload = JSON.stringify({ user_email: email, cv_text: cvText, cv_link: cvLink });
+
+    // Auto-retry once after 35s (Render cold start)
+    async function doFetch(attempt) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 55000);
+      try {
+        const res = await fetch(WEBHOOK_URL, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    payload,
+          signal:  controller.signal
+        });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res;
+      } catch(e) {
+        clearTimeout(timer);
+        throw e;
+      }
+    }
+
     try {
-      const res = await fetch(WEBHOOK_URL, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_email: email, cv_text: cvText, cv_link: cvLink })
-      });
+      let res;
+      try {
+        showStatus('⏳ Sending to server… (Render may take up to 50s to wake up)', 'loading');
+        res = await doFetch(1);
+      } catch(e) {
+        if (true) {
+          showStatus('⏳ Server waking up — retrying in 10 seconds… please wait', 'loading');
+          await new Promise(r => setTimeout(r, 10000));
+          res = await doFetch(2);
+        } else { throw e; }
+      }
 
-      if (!res.ok) throw new Error('Server returned ' + res.status);
-
-      const data = await res.json().catch(() => ({}));
-
-      showStatus(
-        '✅ CV queued! Check your email for the ₹99 payment link to trigger your 20 applications.',
-        'success'
-      );
+      await res.json().catch(() => ({}));
+      showStatus('✅ CV queued! Check your email for the ₹99 payment link.', 'success');
       form.reset();
     } catch (err) {
-      showStatus(
-        '❌ Could not reach the server. If your n8n is on Render free tier, it may be waking up — wait 30 seconds and try again.',
-        'error'
-      );
-      console.error(err);
+      if (err.name === 'AbortError') {
+        showStatus('⏱ Request timed out. Render is still waking up — wait 30 seconds and submit again.', 'error');
+      } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        showStatus('🌐 CORS or network error. Make sure your n8n workflow is ACTIVE (green toggle in n8n) and the webhook path is exactly: applyflow-inbound', 'error');
+      } else {
+        showStatus('❌ Error: ' + err.message + ' — Check n8n logs on Render dashboard.', 'error');
+      }
+      console.error('ApplyFlow error:', err);
     } finally {
       btn.disabled    = false;
       btn.textContent = 'Send My CV & Get Payment Link →';
