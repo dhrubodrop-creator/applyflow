@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ApplyFlow</title>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    .job { border:1px solid #ccc; margin:10px; padding:10px; }
+  </style>
+</head>
+
+<body>
+
+<h2>ApplyFlow AI Job Finder</h2>
+
+<input id="email" placeholder="Your Email"><br><br>
+<textarea id="cv" placeholder="Paste CV"></textarea><br><br>
+
+<button onclick="getJobs()">Find Jobs</button>
+
+<div id="jobs"></div>
+
+<script>
+async function getJobs() {
+  const res = await fetch("https://n8n-1-1msp.onrender.com/webhook/applyflow-inbound", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      user_email: document.getElementById("email").value,
+      cv_text: document.getElementById("cv").value,
+      cv_link: ""
+    })
+  });
+
+  const data = await res.json();
+
+  document.getElementById("jobs").innerHTML = data.map(j => `
+    <div class="job">
+      <h3>${j.title}</h3>
+      <p>${j.company} - ${j.location}</p>
+      <a href="${j.apply_url}" target="_blank">Apply</a>
+    </div>
+  `).join("");
+}
+</script>
+
+</body>
+</html>
